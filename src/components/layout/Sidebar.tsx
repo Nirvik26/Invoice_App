@@ -2,7 +2,7 @@
 
 import {
   ChartLineUp, GearSix, GridFour, Question, Receipt,
-  UsersThree, CaretDown, SignOut,
+  UsersThree, SignOut,
 } from "@phosphor-icons/react";
 import { Avatar } from "@/components/ui/Avatar";
 import { signOutAction } from "@/actions/auth";

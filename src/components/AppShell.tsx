@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { Toast } from "@/components/ui/Toast";
 import { InvoiceTable } from "@/components/invoice/InvoiceTable";
 import { InvoiceEditor } from "@/components/invoice/InvoiceEditor";
+import { InvoiceDetailDrawer } from "@/components/invoice/InvoiceDetailDrawer";
+import { CreateClientModal } from "@/components/clients/CreateClientModal";
+import { CommandPalette } from "@/components/ui/CommandPalette";
+import { Celebration } from "@/components/ui/Celebration";
 import { MetricCard } from "@/components/overview/MetricCard";
 import { RevenueChart } from "@/components/overview/RevenueChart";
 import { ClientCard } from "@/components/clients/ClientCard";
@@ -40,40 +44,109 @@ interface AppShellProps {
   nextInvoiceNumber: string;
 }
 
-export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: AppShellProps) {
+export function AppShell({ user, invoices, clients, stats: initialStats, nextInvoiceNumber }: AppShellProps) {
   const [view, setView] = useState<View>("overview");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"All" | InvoiceStatus>("All");
   const [toast, setToast] = useState("");
 
+  const [invoiceList, setInvoiceList] = useState<InvoiceRow[]>(invoices);
+  const [clientList, setClientList] = useState<ClientRow[]>(clients);
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRow | null>(null);
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [isCmdOpen, setIsCmdOpen] = useState(false);
+  const [celebrating, setCelebrating] = useState(false);
+
   const go = useCallback((next: View) => { setView(next); setQuery(""); }, []);
   const notify = useCallback((msg: string) => setToast(msg), []);
 
+  const handleInvoiceStatusChange = useCallback((id: string, newStatus: InvoiceStatus) => {
+    setInvoiceList((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, status: newStatus } : i))
+    );
+    setSelectedInvoice((prev) => (prev && prev.id === id ? { ...prev, status: newStatus } : prev));
+    if (newStatus === "Paid") {
+      setCelebrating(true);
+    }
+  }, []);
+
+  // Global Cmd+K / Ctrl+K listener
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsCmdOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const handleInvoiceDelete = useCallback((id: string) => {
+    setInvoiceList((prev) => prev.filter((i) => i.id !== id));
+    setSelectedInvoice(null);
+  }, []);
+
+  const handleClientCreated = useCallback((newClient: ClientRow) => {
+    setClientList((prev) => [newClient, ...prev]);
+  }, []);
+
+  // Compute live dashboard stats
+  const currentStats = useMemo(() => {
+    let revenueThisMonth = 0;
+    let outstanding = 0;
+    let outstandingCount = 0;
+    let overdue = 0;
+    let overdueCount = 0;
+
+    for (const inv of invoiceList) {
+      if (inv.status === "Paid") {
+        revenueThisMonth += inv.subtotal;
+      } else if (inv.status === "Sent") {
+        outstanding += inv.subtotal;
+        outstandingCount++;
+      } else if (inv.status === "Overdue") {
+        overdue += inv.subtotal;
+        overdueCount++;
+      }
+    }
+
+    return {
+      revenueThisMonth,
+      revenueGrowth: initialStats.revenueGrowth,
+      outstanding,
+      outstandingCount,
+      overdue,
+      overdueCount,
+      activeClients: clientList.length,
+    };
+  }, [invoiceList, clientList.length, initialStats.revenueGrowth]);
+
   const filteredInvoices = useMemo(() => {
     const q = query.toLowerCase().trim();
-    return invoices.filter(
+    return invoiceList.filter(
       (inv) =>
         (!q || [inv.number, inv.clientName, inv.clientCompany].some(
           (v) => v.toLowerCase().includes(q)
         )) &&
         (filter === "All" || inv.status === filter)
     );
-  }, [query, filter, invoices]);
+  }, [query, filter, invoiceList]);
 
   const filteredClients = useMemo(() => {
     const q = query.toLowerCase().trim();
-    return clients.filter(
+    return clientList.filter(
       (c) => !q || [c.name, c.company, c.email].some((v) => v.toLowerCase().includes(q))
     );
-  }, [query, clients]);
+  }, [query, clientList]);
 
   const totalClientValue = useMemo(
-    () => clients.reduce((sum, c) => sum + c.lifetimeValue, 0),
-    [clients]
+    () => clientList.reduce((sum, c) => sum + c.lifetimeValue, 0),
+    [clientList]
   );
   const avgProject = useMemo(
-    () => (clients.length > 0 ? totalClientValue / clients.length : 0),
-    [clients, totalClientValue]
+    () => (clientList.length > 0 ? totalClientValue / clientList.length : 0),
+    [clientList, totalClientValue]
   );
 
   const isEditor = view === "editor";
@@ -95,6 +168,7 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
           onNavigate={go}
           onNewInvoice={() => go("editor")}
           onNotify={notify}
+          onOpenCommandPalette={() => setIsCmdOpen(true)}
         />
 
         <main className="app__main" id="main-content">
@@ -138,11 +212,11 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                           <small>Revenue this month</small>
                           <b className="metric-card__trend">
                             <ArrowUp size={11} weight="bold" />{" "}
-                            {stats.revenueGrowth}%
+                            {currentStats.revenueGrowth}%
                           </b>
                         </div>
                         <strong className="metric-card__hero-value">
-                          {fmt.format(stats.revenueThisMonth)}
+                          {fmt.format(currentStats.revenueThisMonth)}
                         </strong>
                       </div>
                       <div className="spark">
@@ -156,7 +230,7 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                       </div>
                       <p className="metric-card__hero-sub">
                         <Sparkle size={13} weight="fill" />{" "}
-                        {stats.revenueThisMonth > 0
+                        {currentStats.revenueThisMonth > 0
                           ? "You're on track for your best month yet."
                           : "Send your first invoice to start earning."}
                       </p>
@@ -164,10 +238,10 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
 
                     <MetricCard
                       label="Outstanding"
-                      value={fmt.format(stats.outstanding)}
+                      value={fmt.format(currentStats.outstanding)}
                       sub={
                         <>
-                          <b>{stats.outstandingCount} invoice{stats.outstandingCount !== 1 ? "s" : ""}</b>{" "}
+                          <b>{currentStats.outstandingCount} invoice{currentStats.outstandingCount !== 1 ? "s" : ""}</b>{" "}
                           waiting for payment
                         </>
                       }
@@ -175,11 +249,11 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                     />
                     <MetricCard
                       label="Overdue"
-                      value={fmt.format(stats.overdue)}
+                      value={fmt.format(currentStats.overdue)}
                       sub={
                         <>
-                          <b>{stats.overdueCount} invoice{stats.overdueCount !== 1 ? "s" : ""}</b>{" "}
-                          need{stats.overdueCount === 1 ? "s" : ""} attention
+                          <b>{currentStats.overdueCount} invoice{currentStats.overdueCount !== 1 ? "s" : ""}</b>{" "}
+                          need{currentStats.overdueCount === 1 ? "s" : ""} attention
                         </>
                       }
                       icon={<Clock size={19} />}
@@ -187,7 +261,7 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                     />
                     <MetricCard
                       label="Active clients"
-                      value={String(stats.activeClients)}
+                      value={String(currentStats.activeClients)}
                       sub={<>All time</>}
                       icon={<UsersThree size={19} />}
                     />
@@ -200,7 +274,7 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                         <p className="eyebrow">CASH FLOW</p>
                         <h2>Revenue pulse</h2>
                       </div>
-                      <RevenueChart />
+                      <RevenueChart invoices={invoiceList} />
                     </article>
 
                     <article className="card card--quick">
@@ -224,16 +298,16 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                         <ArrowUp className="quick-action__arrow" />
                       </button>
 
-                      {invoices.length > 0 && (
+                      {invoiceList.length > 0 && (
                         <div className="on-time-rate">
                           <div className="on-time-rate__top">
                             <span>On-time payment rate</span>
                             <b>
-                              {invoices.length === 0
+                              {invoiceList.length === 0
                                 ? "—"
                                 : Math.round(
-                                    (invoices.filter((i) => i.status === "Paid").length /
-                                      invoices.length) *
+                                    (invoiceList.filter((i) => i.status === "Paid").length /
+                                      invoiceList.length) *
                                       100
                                   ) + "%"}
                             </b>
@@ -243,11 +317,11 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                               className="progress-bar__fill"
                               style={{
                                 width: `${
-                                  invoices.length === 0
+                                  invoiceList.length === 0
                                     ? 0
                                     : Math.round(
-                                        (invoices.filter((i) => i.status === "Paid").length /
-                                          invoices.length) *
+                                        (invoiceList.filter((i) => i.status === "Paid").length /
+                                          invoiceList.length) *
                                           100
                                       )
                                 }%`,
@@ -274,10 +348,13 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                         <ArrowUp style={{ transform: "rotate(45deg)" }} size={13} />
                       </button>
                     </div>
-                    {invoices.length === 0 ? (
+                    {invoiceList.length === 0 ? (
                       <EmptyInvoices onCreate={() => go("editor")} />
                     ) : (
-                      <InvoiceTable rows={invoices.slice(0, 5)} />
+                      <InvoiceTable
+                        rows={invoiceList.slice(0, 5)}
+                        onSelectInvoice={(inv) => setSelectedInvoice(inv)}
+                      />
                     )}
                   </article>
                 </>
@@ -302,8 +379,8 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                         {f}
                         <span className="inv-filter__count">
                           {f === "All"
-                            ? invoices.length
-                            : invoices.filter((i) => i.status === f).length}
+                            ? invoiceList.length
+                            : invoiceList.filter((i) => i.status === f).length}
                         </span>
                       </button>
                     ))}
@@ -320,7 +397,10 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                       <EmptyInvoices onCreate={() => go("editor")} />
                     )
                   ) : (
-                    <InvoiceTable rows={filteredInvoices} />
+                    <InvoiceTable
+                      rows={filteredInvoices}
+                      onSelectInvoice={(inv) => setSelectedInvoice(inv)}
+                    />
                   )}
                 </article>
               )}
@@ -332,7 +412,7 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                     <article className="card client-stats__card">
                       <span>Total client value</span>
                       <strong>{fmt.format(totalClientValue)}</strong>
-                      <small>Across {clients.length} client{clients.length !== 1 ? "s" : ""}</small>
+                      <small>Across {clientList.length} client{clientList.length !== 1 ? "s" : ""}</small>
                     </article>
                     <article className="card client-stats__card">
                       <span>Average project</span>
@@ -341,7 +421,7 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                     </article>
                     <button
                       className="btn btn--primary client-stats__add"
-                      onClick={() => notify("Client creation coming soon")}
+                      onClick={() => setIsClientModalOpen(true)}
                       id="add-client-btn"
                     >
                       <Plus size={15} weight="bold" /> Add new client
@@ -355,9 +435,9 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
                       <p>Create your first invoice to add a client automatically.</p>
                       <button
                         className="btn btn--primary"
-                        onClick={() => go("editor")}
+                        onClick={() => setIsClientModalOpen(true)}
                       >
-                        <Plus size={15} weight="bold" /> New invoice
+                        <Plus size={15} weight="bold" /> Add client
                       </button>
                     </div>
                   ) : (
@@ -384,7 +464,7 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
           {isEditor && (
             <div className="page">
               <InvoiceEditor
-                availableClients={clients.map((c) => c.name)}
+                availableClients={clientList.map((c) => c.name)}
                 nextInvoiceNumber={nextInvoiceNumber}
                 onNotify={notify}
               />
@@ -394,6 +474,39 @@ export function AppShell({ user, invoices, clients, stats, nextInvoiceNumber }: 
       </div>
 
       {toast && <Toast message={toast} onDismiss={() => setToast("")} />}
+
+      <InvoiceDetailDrawer
+        invoice={selectedInvoice}
+        onClose={() => setSelectedInvoice(null)}
+        onStatusChange={handleInvoiceStatusChange}
+        onDelete={handleInvoiceDelete}
+        onNotify={notify}
+      />
+
+      <CreateClientModal
+        isOpen={isClientModalOpen}
+        onClose={() => setIsClientModalOpen(false)}
+        onCreated={handleClientCreated}
+        onNotify={notify}
+      />
+
+      <CommandPalette
+        key={isCmdOpen ? "cmd-open" : "cmd-closed"}
+        isOpen={isCmdOpen}
+        onClose={() => setIsCmdOpen(false)}
+        invoices={invoiceList}
+        clients={clientList}
+        onNavigate={go}
+        onSelectInvoice={(inv) => setSelectedInvoice(inv)}
+        onOpenNewInvoice={() => go("editor")}
+        onOpenNewClient={() => setIsClientModalOpen(true)}
+        onFilterInvoices={(f) => setFilter(f)}
+      />
+
+      <Celebration
+        active={celebrating}
+        onComplete={() => setCelebrating(false)}
+      />
     </div>
   );
 }

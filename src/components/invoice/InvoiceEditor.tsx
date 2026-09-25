@@ -53,9 +53,11 @@ export function InvoiceEditor({
   const tax = subtotal * 0.08;
   const total = subtotal + tax;
 
-  const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString(
-    "en-US",
-    { month: "short", day: "numeric", year: "numeric" }
+  const [dueDate] = useState(() =>
+    new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString(
+      "en-US",
+      { month: "short", day: "numeric", year: "numeric" }
+    )
   );
 
   const update = (id: number, key: keyof Item, value: string | number) =>

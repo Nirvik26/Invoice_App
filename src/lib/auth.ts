@@ -3,7 +3,6 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
-import { createSession } from "@/lib/session";
 import type { User } from "@/types";
 
 const SALT_ROUNDS = 12;

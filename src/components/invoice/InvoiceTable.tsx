@@ -1,26 +1,15 @@
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
-import type { InvoiceStatus, AvatarTone } from "@/types";
+import type { AvatarTone, InvoiceRow } from "@/types";
 
 const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
-interface InvoiceRow {
-  id: string;
-  number: string;
-  clientName: string;
-  clientCompany: string;
-  clientInitials: string;
-  clientTone: AvatarTone | string;
-  dueDate: string;
-  status: InvoiceStatus;
-  subtotal: number;
-}
-
 interface InvoiceTableProps {
   rows: InvoiceRow[];
+  onSelectInvoice?: (inv: InvoiceRow) => void;
 }
 
-export function InvoiceTable({ rows }: InvoiceTableProps) {
+export function InvoiceTable({ rows, onSelectInvoice }: InvoiceTableProps) {
   return (
     <div className="inv-table" role="table" aria-label="Invoice list">
       {/* Header */}
@@ -36,7 +25,19 @@ export function InvoiceTable({ rows }: InvoiceTableProps) {
       {rows.map((inv) => {
         const due = new Date(inv.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" });
         return (
-          <div key={inv.id} className="inv-table__row inv-table__row--data" role="row" tabIndex={0}>
+          <div
+            key={inv.id}
+            className={`inv-table__row inv-table__row--data${onSelectInvoice ? " inv-table__row--interactive" : ""}`}
+            role="row"
+            tabIndex={0}
+            onClick={() => onSelectInvoice?.(inv)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelectInvoice?.(inv);
+              }
+            }}
+          >
             <span className="inv-table__client" role="cell">
               <Avatar
                 initials={inv.clientInitials}

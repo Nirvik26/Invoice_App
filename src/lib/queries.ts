@@ -1,8 +1,8 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { invoices, clients, lineItems } from "@/lib/schema";
-import { eq, and, desc, sum, count } from "drizzle-orm";
-import type { InvoiceRow, ClientRow, DashboardStats } from "@/types";
+import { invoices, clients, lineItems, users } from "@/lib/schema";
+import { eq, and, desc, asc, count, inArray } from "drizzle-orm";
+import type { InvoiceRow, InvoiceWithDetails, PublicInvoice, ClientRow, DashboardStats, AvatarTone } from "@/types";
 
 // ── Invoices ───────────────────────────────────────────────────────────────
 export async function getInvoicesForUser(userId: string): Promise<InvoiceRow[]> {
@@ -30,24 +30,109 @@ export async function getInvoicesForUser(userId: string): Promise<InvoiceRow[]> 
   const allItems = await db
     .select({ invoiceId: lineItems.invoiceId, rate: lineItems.rate, qty: lineItems.qty })
     .from(lineItems)
-    .where(
-      invoiceIds.length === 1
-        ? eq(lineItems.invoiceId, invoiceIds[0])
-        : // For multiple invoices, fetch all and filter in JS (simpler than dynamic `in()`)
-          eq(lineItems.invoiceId, lineItems.invoiceId) // will filter below
-    );
+    .where(inArray(lineItems.invoiceId, invoiceIds));
 
   const itemMap = new Map<string, number>();
   for (const item of allItems) {
-    if (invoiceIds.includes(item.invoiceId)) {
-      itemMap.set(item.invoiceId, (itemMap.get(item.invoiceId) ?? 0) + item.rate * item.qty);
-    }
+    itemMap.set(item.invoiceId, (itemMap.get(item.invoiceId) ?? 0) + item.rate * item.qty);
   }
 
   return rows.map((row) => ({
     ...row,
+    clientTone: row.clientTone as AvatarTone,
     subtotal: itemMap.get(row.id) ?? 0,
-  })) as InvoiceRow[];
+  }));
+}
+
+export async function getInvoiceDetails(
+  invoiceId: string,
+  userId: string
+): Promise<InvoiceWithDetails | null> {
+  const [row] = await db
+    .select({
+      id: invoices.id,
+      number: invoices.number,
+      status: invoices.status,
+      dueDate: invoices.dueDate,
+      notes: invoices.notes,
+      taxRate: invoices.taxRate,
+      createdAt: invoices.createdAt,
+      clientId: invoices.clientId,
+      clientName: clients.name,
+      clientCompany: clients.company,
+      clientEmail: clients.email,
+      clientInitials: clients.initials,
+      clientTone: clients.tone,
+    })
+    .from(invoices)
+    .innerJoin(clients, eq(invoices.clientId, clients.id))
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.userId, userId)))
+    .limit(1);
+
+  if (!row) return null;
+
+  const items = await db
+    .select()
+    .from(lineItems)
+    .where(eq(lineItems.invoiceId, invoiceId))
+    .orderBy(asc(lineItems.sortOrder));
+
+  const subtotal = items.reduce((sum, item) => sum + item.rate * item.qty, 0);
+
+  return {
+    ...row,
+    clientTone: row.clientTone as AvatarTone,
+    subtotal,
+    items,
+  };
+}
+
+export async function getPublicInvoiceByNumber(
+  number: string
+): Promise<PublicInvoice | null> {
+  const [row] = await db
+    .select({
+      id: invoices.id,
+      number: invoices.number,
+      status: invoices.status,
+      dueDate: invoices.dueDate,
+      notes: invoices.notes,
+      taxRate: invoices.taxRate,
+      createdAt: invoices.createdAt,
+      issuerName: users.name,
+      issuerEmail: users.email,
+      clientName: clients.name,
+      clientCompany: clients.company,
+      clientEmail: clients.email,
+      clientInitials: clients.initials,
+      clientTone: clients.tone,
+    })
+    .from(invoices)
+    .innerJoin(clients, eq(invoices.clientId, clients.id))
+    .innerJoin(users, eq(invoices.userId, users.id))
+    .where(eq(invoices.number, number))
+    .limit(1);
+
+  if (!row) return null;
+
+  const items = await db
+    .select()
+    .from(lineItems)
+    .where(eq(lineItems.invoiceId, row.id))
+    .orderBy(asc(lineItems.sortOrder));
+
+  const subtotal = items.reduce((sum, item) => sum + item.rate * item.qty, 0);
+  const tax = subtotal * (row.taxRate / 100);
+  const total = subtotal + tax;
+
+  return {
+    ...row,
+    clientTone: row.clientTone as AvatarTone,
+    subtotal,
+    tax,
+    total,
+    items,
+  };
 }
 
 // ── Clients ────────────────────────────────────────────────────────────────

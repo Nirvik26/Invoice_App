@@ -30,6 +30,36 @@ export type InvoiceRow = {
   subtotal: number;
 };
 
+/** Full invoice detail with its line items and client contact */
+export type InvoiceWithDetails = InvoiceRow & {
+  notes?: string | null;
+  taxRate: number;
+  clientEmail: string;
+  items: LineItem[];
+};
+
+/** Publicly viewable invoice payload for client portal */
+export type PublicInvoice = {
+  id: string;
+  number: string;
+  status: InvoiceStatus;
+  dueDate: string;
+  notes: string | null;
+  taxRate: number;
+  createdAt: Date;
+  issuerName: string;
+  issuerEmail: string;
+  clientName: string;
+  clientCompany: string;
+  clientEmail: string;
+  clientInitials: string;
+  clientTone: AvatarTone;
+  subtotal: number;
+  tax: number;
+  total: number;
+  items: LineItem[];
+};
+
 /** Client enriched with project count and lifetime value */
 export type ClientRow = Client & {
   projectCount: number;

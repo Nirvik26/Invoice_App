@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decrypt } from "@/lib/session";
 
-const PUBLIC_PATHS = ["/sign-in", "/sign-up"];
+const AUTH_PAGES = ["/sign-in", "/sign-up"];
+const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/invoice"];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -15,18 +16,19 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  const isPublicPrefix = PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
+  const isAuthPage = AUTH_PAGES.some((p) => pathname.startsWith(p));
   const token = request.cookies.get("billora_session")?.value;
   const session = token ? await decrypt(token) : null;
   const isAuthenticated = !!session && session.expiresAt > new Date();
 
-  // Redirect unauthenticated users to sign-in
-  if (!isAuthenticated && !isPublicPath) {
+  // Redirect unauthenticated users to sign-in for private routes
+  if (!isAuthenticated && !isPublicPrefix) {
     return NextResponse.redirect(new URL("/sign-in", request.url));
   }
 
-  // Redirect authenticated users away from auth pages
-  if (isAuthenticated && isPublicPath) {
+  // Redirect authenticated users away from sign-in/sign-up pages
+  if (isAuthenticated && isAuthPage) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 

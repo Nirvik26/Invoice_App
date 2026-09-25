@@ -10,6 +10,7 @@ interface TopbarProps {
   onNavigate: (view: View) => void;
   onNewInvoice: () => void;
   onNotify: (msg: string) => void;
+  onOpenCommandPalette?: () => void;
 }
 
 export function Topbar({
@@ -19,9 +20,10 @@ export function Topbar({
   onNavigate,
   onNewInvoice,
   onNotify,
+  onOpenCommandPalette,
 }: TopbarProps) {
   const isEditor = view === "editor";
-  const placeholder = view === "clients" ? "Search clients…" : "Search invoices…";
+  const placeholder = view === "clients" ? "Search clients… (or ⌘K)" : "Search invoices… (or ⌘K)";
 
   return (
     <header className="topbar" role="banner">
@@ -38,17 +40,27 @@ export function Topbar({
           <span>Invoices</span>
         </button>
       ) : (
-        <label className="topbar__search" htmlFor="topbar-search">
-          <MagnifyingGlass size={16} className="topbar__search-icon" />
-          <input
-            id="topbar-search"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder={placeholder}
-            autoComplete="off"
-          />
-          <kbd>⌘ K</kbd>
-        </label>
+        <div className="topbar__search-wrap">
+          <label className="topbar__search" htmlFor="topbar-search">
+            <MagnifyingGlass size={16} className="topbar__search-icon" />
+            <input
+              id="topbar-search"
+              value={query}
+              onChange={(e) => onQueryChange(e.target.value)}
+              placeholder={placeholder}
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              className="topbar__cmd-btn"
+              onClick={onOpenCommandPalette}
+              title="Open Command Palette (⌘K)"
+              aria-label="Open Command Palette"
+            >
+              <kbd>⌘ K</kbd>
+            </button>
+          </label>
+        </div>
       )}
 
       {/* Right: actions */}

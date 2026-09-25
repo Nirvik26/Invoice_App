@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { invoices, lineItems, clients } from "@/lib/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { getSession } from "@/lib/session";
 import type { NewInvoice, NewLineItem } from "@/types";
 
@@ -9,6 +9,7 @@ import type { NewInvoice, NewLineItem } from "@/types";
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const rows = await db
       .select({
@@ -25,13 +26,21 @@ export async function GET() {
       })
       .from(invoices)
       .innerJoin(clients, eq(invoices.clientId, clients.id))
+      .where(eq(invoices.userId, session.userId))
       .orderBy(desc(invoices.createdAt));
 
-    // Fetch line items for all invoices to compute amounts
-    const allLineItems = await db.select().from(lineItems);
+    if (rows.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    const invoiceIds = rows.map((r) => r.id);
+    const userLineItems = await db
+      .select()
+      .from(lineItems)
+      .where(inArray(lineItems.invoiceId, invoiceIds));
 
     const result = rows.map((row) => {
-      const items = allLineItems.filter((li) => li.invoiceId === row.id);
+      const items = userLineItems.filter((li) => li.invoiceId === row.id);
       const subtotal = items.reduce((sum, li) => sum + li.rate * li.qty, 0);
       return { ...row, subtotal, lineItems: items };
     });
@@ -45,13 +54,22 @@ export async function GET() {
 
 // ── POST /api/invoices ─────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
-    const body = await req.json() as {
-      invoice: NewInvoice;
+    const body = (await req.json()) as {
+      invoice: Omit<NewInvoice, "userId">;
       items: Omit<NewLineItem, "invoiceId">[];
     };
 
-    const [created] = await db.insert(invoices).values(body.invoice).returning();
+    const [created] = await db
+      .insert(invoices)
+      .values({
+        ...body.invoice,
+        userId: session.userId,
+      })
+      .returning();
 
     if (body.items?.length) {
       await db.insert(lineItems).values(

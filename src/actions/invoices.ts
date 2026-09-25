@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { invoices, lineItems, clients } from "@/lib/schema";
 import { getSession } from "@/lib/session";
 import { getNextInvoiceNumber } from "@/lib/queries";
-import { eq, desc } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import type { FormState } from "@/types";
 
 // ── Zod schema ─────────────────────────────────────────────────────────────
@@ -51,11 +51,11 @@ export async function createInvoiceAction(
     };
   }
 
-  // Find or create the client
+  // Find or create the client scoped to this user
   const [existingClient] = await db
     .select({ id: clients.id })
     .from(clients)
-    .where(eq(clients.name, parsed.data.clientName))
+    .where(and(eq(clients.name, parsed.data.clientName), eq(clients.userId, session.userId)))
     .limit(1);
 
   let clientId = existingClient?.id;
@@ -117,4 +117,94 @@ export async function createInvoiceAction(
   );
 
   redirect("/");
+}
+
+// ── Update invoice status ──────────────────────────────────────────────────
+export async function updateInvoiceStatusAction(
+  invoiceId: string,
+  status: "Draft" | "Sent" | "Paid" | "Overdue"
+): Promise<{ success: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Unauthorized" };
+
+  try {
+    const [updated] = await db
+      .update(invoices)
+      .set({ status })
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.userId, session.userId)))
+      .returning({ id: invoices.id });
+
+    if (!updated) {
+      return { success: false, error: "Invoice not found." };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("[updateInvoiceStatusAction]", err);
+    return { success: false, error: "Failed to update status." };
+  }
+}
+
+// ── Delete invoice ─────────────────────────────────────────────────────────
+export async function deleteInvoiceAction(
+  invoiceId: string
+): Promise<{ success: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session) return { success: false, error: "Unauthorized" };
+
+  try {
+    const [deleted] = await db
+      .delete(invoices)
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.userId, session.userId)))
+      .returning({ id: invoices.id });
+
+    if (!deleted) {
+      return { success: false, error: "Invoice not found." };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("[deleteInvoiceAction]", err);
+    return { success: false, error: "Failed to delete invoice." };
+  }
+}
+
+// ── Get invoice details for preview ────────────────────────────────────────
+export async function getInvoiceDetailsAction(invoiceId: string) {
+  const session = await getSession();
+  if (!session) return null;
+
+  const { getInvoiceDetails } = await import("@/lib/queries");
+  return getInvoiceDetails(invoiceId, session.userId);
+}
+
+// ── Pay public invoice (Client portal) ─────────────────────────────────────
+export async function payPublicInvoiceAction(
+  invoiceNumber: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const [invoice] = await db
+      .select({ id: invoices.id, status: invoices.status })
+      .from(invoices)
+      .where(eq(invoices.number, invoiceNumber))
+      .limit(1);
+
+    if (!invoice) {
+      return { success: false, error: "Invoice not found." };
+    }
+
+    if (invoice.status === "Paid") {
+      return { success: true };
+    }
+
+    await db
+      .update(invoices)
+      .set({ status: "Paid" })
+      .where(eq(invoices.id, invoice.id));
+
+    return { success: true };
+  } catch (err) {
+    console.error("[payPublicInvoiceAction]", err);
+    return { success: false, error: "Payment processing failed. Please try again." };
+  }
 }
