@@ -1,6 +1,6 @@
 /**
  * Seed script — populates the database with demo data.
- * Run with: pnpm db:seed
+ * Run with: bun run db:seed
  * Demo credentials: demo@billora.app / demo1234
  */
 import * as dotenv from "dotenv";
@@ -18,6 +18,9 @@ async function seed() {
   console.log("🌱 Seeding database…");
 
   // ── Wipe ──────────────────────────────────────────────────────────────────
+  await db.delete(schema.proposalEvents);
+  await db.delete(schema.proposals);
+  await db.delete(schema.payments);
   await db.delete(schema.lineItems);
   await db.delete(schema.invoices);
   await db.delete(schema.clients);

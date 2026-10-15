@@ -2,7 +2,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import type { AvatarTone, InvoiceRow } from "@/types";
 
-const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 
 interface InvoiceTableProps {
   rows: InvoiceRow[];
@@ -18,7 +18,7 @@ export function InvoiceTable({ rows, onSelectInvoice }: InvoiceTableProps) {
         <span role="columnheader">Invoice</span>
         <span role="columnheader">Due</span>
         <span role="columnheader">Status</span>
-        <span role="columnheader" style={{ textAlign: "right" }}>Amount</span>
+        <span role="columnheader" style={{ textAlign: "right" }}>Balance</span>
       </div>
 
       {/* Rows */}
@@ -51,8 +51,8 @@ export function InvoiceTable({ rows, onSelectInvoice }: InvoiceTableProps) {
             </span>
             <span className="inv-table__mono" role="cell">{inv.number}</span>
             <span role="cell">{due}</span>
-            <span role="cell"><Badge status={inv.status} /></span>
-            <strong role="cell" style={{ textAlign: "right" }}>{fmt.format(inv.subtotal)}</strong>
+            <span role="cell"><Badge status={inv.status} />{inv.paidCents > 0 && inv.balanceCents > 0 && <small className="flow-partial">Partially paid</small>}</span>
+            <strong role="cell" style={{ textAlign: "right" }}>{fmt.format(inv.balanceCents / 100)}<small className="flow-partial">{fmt.format(inv.totalCents / 100)} total</small></strong>
           </div>
         );
       })}

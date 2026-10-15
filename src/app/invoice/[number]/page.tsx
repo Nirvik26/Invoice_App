@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { getPublicInvoiceByNumber } from "@/lib/queries";
+import { paymentsConfigured } from "@/lib/stripe";
+export const dynamic = "force-dynamic";
+import { getPublicInvoiceByToken } from "@/lib/queries";
 import { PublicInvoicePortal } from "@/components/invoice/PublicInvoicePortal";
 import type { Metadata } from "next";
 
@@ -7,19 +9,18 @@ interface InvoicePageProps {
   params: Promise<{ number: string }>;
 }
 
-export async function generateMetadata({
-  params,
-}: InvoicePageProps): Promise<Metadata> {
-  const { number } = await params;
+export async function generateMetadata(): Promise<Metadata> {
   return {
-    title: `Invoice ${number} · Billora`,
-    description: `View and settle invoice ${number} securely online.`,
+    title: "Private invoice · Billora",
+    robots: { index: false, follow: false },
+    referrer: "no-referrer",
+    description: "View and settle your invoice securely online.",
   };
 }
 
 export default async function InvoicePage({ params }: InvoicePageProps) {
   const { number } = await params;
-  const invoice = await getPublicInvoiceByNumber(number);
+  const invoice = await getPublicInvoiceByToken(number);
 
   if (!invoice) {
     return (
@@ -39,5 +40,5 @@ export default async function InvoicePage({ params }: InvoicePageProps) {
     );
   }
 
-  return <PublicInvoicePortal invoice={invoice} />;
+  return <PublicInvoicePortal invoice={invoice} paymentsEnabled={paymentsConfigured()} />;
 }

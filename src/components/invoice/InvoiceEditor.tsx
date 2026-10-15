@@ -38,6 +38,7 @@ export function InvoiceEditor({
   nextInvoiceNumber,
   onNotify,
 }: InvoiceEditorProps) {
+  const [deposit, setDeposit] = useState(100);
   const [client, setClient] = useState(availableClients[0] ?? "");
   const [items, setItems] = useState<Item[]>(DEFAULT_ITEMS);
 
@@ -74,14 +75,7 @@ export function InvoiceEditor({
   const removeLine = (id: number) =>
     setItems((rows) => rows.filter((item) => item.id !== id));
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(
-        `${location.origin}/invoice/${nextInvoiceNumber}`
-      );
-    } catch {}
-    onNotify("Secure invoice link copied");
-  };
+  const handleCopy = () => onNotify("Save the invoice first, then copy its private link from invoice details.");
 
   return (
     <div className="editor">
@@ -92,7 +86,7 @@ export function InvoiceEditor({
         </div>
         <span className="editor__saved">
           <CheckCircle size={15} weight="fill" />
-          Auto-saved to database
+          Unsaved draft
         </span>
       </div>
 
@@ -100,6 +94,7 @@ export function InvoiceEditor({
         action={(fd) => {
           // Inject items as JSON before submitting
           fd.set("clientName", client);
+          fd.set("paymentPlan", JSON.stringify(deposit === 100 ? [{ label: "Full payment", percent: 100 }] : [{ label: "Project deposit", percent: deposit }, { label: "Final delivery", percent: 100 - deposit }]));
           fd.set(
             "items",
             JSON.stringify(
@@ -272,6 +267,7 @@ export function InvoiceEditor({
               <strong className="editor__total">{fmt.format(total)}</strong>
               <small>USD · due in 14 days</small>
 
+              <label className="flow-field" style={{ marginTop: 16 }}>Payment schedule<select value={deposit} onChange={e => setDeposit(Number(e.target.value))}><option value={100}>Full payment</option><option value={30}>30% deposit + 70% on delivery</option><option value={50}>50% deposit + 50% on delivery</option></select></label>
               <div className="editor__payment-toggle">
                 <Sparkle
                   size={28}
@@ -279,13 +275,13 @@ export function InvoiceEditor({
                   className="editor__payment-icon"
                 />
                 <div>
-                  <b>Online payments on</b>
-                  <p>Your client can pay securely by card.</p>
+                  <b>Stripe test checkout</b>
+                  <p>Available when Stripe test keys are configured.</p>
                 </div>
                 <button
                   type="button"
                   className="editor__payment-check"
-                  onClick={() => onNotify("Online payments are enabled")}
+                  onClick={() => onNotify("Checkout requires Stripe test keys and a webhook endpoint.")}
                   aria-label="Toggle online payments"
                 >
                   <Check size={13} weight="bold" />
@@ -302,7 +298,7 @@ export function InvoiceEditor({
                   <span className="auth-submit__spinner" />
                 ) : (
                   <>
-                    <PaperPlaneTilt size={17} weight="fill" /> Save &amp; send
+                    <PaperPlaneTilt size={17} weight="fill" /> Save invoice
                   </>
                 )}
               </button>

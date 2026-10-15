@@ -1,14 +1,26 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { invoices, clients, lineItems, users } from "@/lib/schema";
-import { eq, and, desc, asc, count, inArray } from "drizzle-orm";
-import type { InvoiceRow, InvoiceWithDetails, PublicInvoice, ClientRow, DashboardStats, AvatarTone } from "@/types";
+import { invoices, clients, lineItems, users, payments } from "@/lib/schema";
+import { totalCents, tokenSchema, summarizeInvoices } from "./billing";
+import { eq, and, desc, asc, count, inArray, sql } from "drizzle-orm";
+import type {
+  InvoiceRow,
+  InvoiceWithDetails,
+  PublicInvoice,
+  ClientRow,
+  DashboardStats,
+  AvatarTone,
+} from "@/types";
 
 // ── Invoices ───────────────────────────────────────────────────────────────
-export async function getInvoicesForUser(userId: string): Promise<InvoiceRow[]> {
+export async function getInvoicesForUser(
+  userId: string,
+): Promise<InvoiceRow[]> {
   const rows = await db
     .select({
       id: invoices.id,
+      publicToken: invoices.publicToken,
+      taxRate: invoices.taxRate,
       number: invoices.number,
       status: invoices.status,
       dueDate: invoices.dueDate,
@@ -28,29 +40,67 @@ export async function getInvoicesForUser(userId: string): Promise<InvoiceRow[]> 
 
   const invoiceIds = rows.map((r) => r.id);
   const allItems = await db
-    .select({ invoiceId: lineItems.invoiceId, rate: lineItems.rate, qty: lineItems.qty })
+    .select({
+      invoiceId: lineItems.invoiceId,
+      rate: lineItems.rate,
+      qty: lineItems.qty,
+    })
     .from(lineItems)
     .where(inArray(lineItems.invoiceId, invoiceIds));
 
   const itemMap = new Map<string, number>();
   for (const item of allItems) {
-    itemMap.set(item.invoiceId, (itemMap.get(item.invoiceId) ?? 0) + item.rate * item.qty);
+    itemMap.set(
+      item.invoiceId,
+      (itemMap.get(item.invoiceId) ?? 0) + item.rate * item.qty,
+    );
   }
 
-  return rows.map((row) => ({
-    ...row,
-    clientTone: row.clientTone as AvatarTone,
-    subtotal: itemMap.get(row.id) ?? 0,
-  }));
+  const history = await db
+    .select({
+      id: payments.id,
+      invoiceId: payments.invoiceId,
+      label: payments.label,
+      amountCents: payments.amountCents,
+      status: payments.status,
+      createdAt: payments.createdAt,
+      paidAt: payments.paidAt,
+    })
+    .from(payments)
+    .where(inArray(payments.invoiceId, invoiceIds));
+  return rows.map((row) => {
+    const total = totalCents(
+      [{ rate: itemMap.get(row.id) ?? 0, qty: 1 }],
+      row.taxRate,
+    );
+    const paymentHistory = history.filter((p) => p.invoiceId === row.id);
+    const paid =
+      row.status === "Paid"
+        ? total
+        : paymentHistory
+            .filter((p) => p.status === "paid")
+            .reduce((s, p) => s + p.amountCents, 0);
+    return {
+      ...row,
+      clientTone: row.clientTone as AvatarTone,
+      subtotal: itemMap.get(row.id) ?? 0,
+      totalCents: total,
+      paidCents: paid,
+      balanceCents: Math.max(0, total - paid),
+      paymentHistory,
+    };
+  });
 }
 
 export async function getInvoiceDetails(
   invoiceId: string,
-  userId: string
+  userId: string,
 ): Promise<InvoiceWithDetails | null> {
   const [row] = await db
     .select({
       id: invoices.id,
+      publicToken: invoices.publicToken,
+      paymentPlan: invoices.paymentPlan,
       number: invoices.number,
       status: invoices.status,
       dueDate: invoices.dueDate,
@@ -78,21 +128,36 @@ export async function getInvoiceDetails(
     .orderBy(asc(lineItems.sortOrder));
 
   const subtotal = items.reduce((sum, item) => sum + item.rate * item.qty, 0);
+  const paymentHistory = await paymentHistoryFor(row.id);
+  const total = totalCents(items, row.taxRate);
+  const paidCents =
+    row.status === "Paid"
+      ? total
+      : paymentHistory
+          .filter((p) => p.status === "paid")
+          .reduce((s, p) => s + p.amountCents, 0);
 
   return {
     ...row,
     clientTone: row.clientTone as AvatarTone,
     subtotal,
     items,
+    totalCents: total,
+    paidCents,
+    balanceCents: Math.max(0, total - paidCents),
+    paymentHistory,
   };
 }
 
-export async function getPublicInvoiceByNumber(
-  number: string
+export async function getPublicInvoiceByToken(
+  token: string,
 ): Promise<PublicInvoice | null> {
+  if (!tokenSchema.safeParse(token).success) return null;
   const [row] = await db
     .select({
       id: invoices.id,
+      publicToken: invoices.publicToken,
+      paymentPlan: invoices.paymentPlan,
       number: invoices.number,
       status: invoices.status,
       dueDate: invoices.dueDate,
@@ -110,10 +175,10 @@ export async function getPublicInvoiceByNumber(
     .from(invoices)
     .innerJoin(clients, eq(invoices.clientId, clients.id))
     .innerJoin(users, eq(invoices.userId, users.id))
-    .where(eq(invoices.number, number))
+    .where(eq(invoices.publicToken, token))
     .limit(1);
 
-  if (!row) return null;
+  if (!row || row.status === "Draft") return null;
 
   const items = await db
     .select()
@@ -122,8 +187,15 @@ export async function getPublicInvoiceByNumber(
     .orderBy(asc(lineItems.sortOrder));
 
   const subtotal = items.reduce((sum, item) => sum + item.rate * item.qty, 0);
-  const tax = subtotal * (row.taxRate / 100);
-  const total = subtotal + tax;
+  const total = totalCents(items, row.taxRate) / 100;
+  const tax = total - subtotal;
+  const paymentHistory = await paymentHistoryFor(row.id);
+  const paidCents =
+    row.status === "Paid"
+      ? Math.round(total * 100)
+      : paymentHistory
+          .filter((p) => p.status === "paid")
+          .reduce((s, p) => s + p.amountCents, 0);
 
   return {
     ...row,
@@ -132,7 +204,25 @@ export async function getPublicInvoiceByNumber(
     tax,
     total,
     items,
+    paidCents,
+    balanceCents: Math.max(0, Math.round(total * 100) - paidCents),
+    paymentHistory,
   };
+}
+
+async function paymentHistoryFor(invoiceId: string) {
+  return db
+    .select({
+      id: payments.id,
+      label: payments.label,
+      amountCents: payments.amountCents,
+      status: payments.status,
+      createdAt: payments.createdAt,
+      paidAt: payments.paidAt,
+    })
+    .from(payments)
+    .where(eq(payments.invoiceId, invoiceId))
+    .orderBy(desc(payments.createdAt));
 }
 
 // ── Clients ────────────────────────────────────────────────────────────────
@@ -171,7 +261,10 @@ export async function getClientsForUser(userId: string): Promise<ClientRow[]> {
   const valueMap = new Map<string, number>();
   for (const item of allItems) {
     if (clientIds.includes(item.clientId)) {
-      valueMap.set(item.clientId, (valueMap.get(item.clientId) ?? 0) + item.rate * item.qty);
+      valueMap.set(
+        item.clientId,
+        (valueMap.get(item.clientId) ?? 0) + item.rate * item.qty,
+      );
     }
   }
 
@@ -182,67 +275,17 @@ export async function getClientsForUser(userId: string): Promise<ClientRow[]> {
 }
 
 // ── Dashboard stats ────────────────────────────────────────────────────────
-export async function getDashboardStats(userId: string): Promise<DashboardStats> {
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-
-  // All invoices for the user with their line item totals
-  const inv = await db
-    .select({
-      id: invoices.id,
-      status: invoices.status,
-      dueDate: invoices.dueDate,
-      createdAt: invoices.createdAt,
-    })
-    .from(invoices)
-    .where(eq(invoices.userId, userId));
-
-  const allItems = await db
-    .select({ invoiceId: lineItems.invoiceId, rate: lineItems.rate, qty: lineItems.qty })
-    .from(lineItems)
-    .innerJoin(invoices, eq(lineItems.invoiceId, invoices.id))
-    .where(eq(invoices.userId, userId));
-
-  const totalMap = new Map<string, number>();
-  for (const item of allItems) {
-    totalMap.set(item.invoiceId, (totalMap.get(item.invoiceId) ?? 0) + item.rate * item.qty);
-  }
-
-  let revenueThisMonth = 0;
-  let outstanding = 0;
-  let outstandingCount = 0;
-  let overdue = 0;
-  let overdueCount = 0;
-
-  for (const invoice of inv) {
-    const amount = totalMap.get(invoice.id) ?? 0;
-
-    if (invoice.status === "Paid") {
-      const invDate = invoice.createdAt.toISOString().slice(0, 10);
-      if (invDate >= startOfMonth) revenueThisMonth += amount;
-    }
-    if (invoice.status === "Sent") {
-      outstanding += amount;
-      outstandingCount++;
-    }
-    if (invoice.status === "Overdue") {
-      overdue += amount;
-      overdueCount++;
-    }
-  }
-
+export async function getDashboardStats(
+  userId: string,
+): Promise<DashboardStats> {
+  const rows = await getInvoicesForUser(userId);
   const [{ activeClients }] = await db
     .select({ activeClients: count(clients.id) })
     .from(clients)
     .where(eq(clients.userId, userId));
-
   return {
-    revenueThisMonth,
-    revenueGrowth: 18.4, // Would need historical data in production
-    outstanding,
-    outstandingCount,
-    overdue,
-    overdueCount,
+    ...summarizeInvoices(rows),
+    revenueGrowth: 0,
     activeClients: Number(activeClients),
   };
 }
@@ -252,14 +295,13 @@ export async function getNextInvoiceNumber(userId: string): Promise<string> {
   const [latest] = await db
     .select({ number: invoices.number })
     .from(invoices)
-    .where(eq(invoices.userId, userId))
-    .orderBy(desc(invoices.createdAt))
+    .where(
+      and(
+        eq(invoices.userId, userId),
+        sql`${invoices.number} ~ '^INV-[0-9]{4,7}$'`,
+      ),
+    )
+    .orderBy(desc(sql`substring(${invoices.number} from 5)::integer`))
     .limit(1);
-
-  if (!latest) return "INV-1001";
-
-  const match = latest.number.match(/INV-(\d+)/);
-  if (!match) return "INV-1001";
-
-  return `INV-${Number(match[1]) + 1}`;
+  return latest ? `INV-${Number(latest.number.slice(4)) + 1}` : "INV-1001";
 }

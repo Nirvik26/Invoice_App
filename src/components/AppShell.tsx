@@ -1,5 +1,10 @@
 "use client";
 
+import { HospitalityWorkspace } from "@/components/hospitality/HospitalityWorkspace";
+import { summarizeInvoices } from "@/lib/billing";
+import { useRouter } from "next/navigation";
+import { ProposalsWorkspace } from "@/components/proposals/ProposalsWorkspace";
+import type { ProposalList } from "@/lib/proposals";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
@@ -42,33 +47,37 @@ interface AppShellProps {
   clients: ClientRow[];
   stats: DashboardStats;
   nextInvoiceNumber: string;
+  proposals: ProposalList;
 }
 
-export function AppShell({ user, invoices, clients, stats: initialStats, nextInvoiceNumber }: AppShellProps) {
-  const [view, setView] = useState<View>("overview");
+export function AppShell({ user, invoices, clients, stats: initialStats, nextInvoiceNumber, proposals }: AppShellProps) {
+  const router = useRouter();
+  const [view, setView] = useState<View>("hospitality");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"All" | InvoiceStatus>("All");
   const [toast, setToast] = useState("");
 
-  const [invoiceList, setInvoiceList] = useState<InvoiceRow[]>(invoices);
+  const invoiceList = invoices;
   const [clientList, setClientList] = useState<ClientRow[]>(clients);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRow | null>(null);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isCmdOpen, setIsCmdOpen] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
 
+  useEffect(() => {
+    const timer = setInterval(() => router.refresh(), 5000);
+    return () => clearInterval(timer);
+  }, [router]);
   const go = useCallback((next: View) => { setView(next); setQuery(""); }, []);
   const notify = useCallback((msg: string) => setToast(msg), []);
 
   const handleInvoiceStatusChange = useCallback((id: string, newStatus: InvoiceStatus) => {
-    setInvoiceList((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, status: newStatus } : i))
-    );
+    router.refresh();
     setSelectedInvoice((prev) => (prev && prev.id === id ? { ...prev, status: newStatus } : prev));
     if (newStatus === "Paid") {
       setCelebrating(true);
     }
-  }, []);
+  }, [router]);
 
   // Global Cmd+K / Ctrl+K listener
   useEffect(() => {
@@ -83,44 +92,19 @@ export function AppShell({ user, invoices, clients, stats: initialStats, nextInv
   }, []);
 
   const handleInvoiceDelete = useCallback((id: string) => {
-    setInvoiceList((prev) => prev.filter((i) => i.id !== id));
+    void id;
+    router.refresh();
     setSelectedInvoice(null);
-  }, []);
+  }, [router]);
 
   const handleClientCreated = useCallback((newClient: ClientRow) => {
     setClientList((prev) => [newClient, ...prev]);
   }, []);
 
   // Compute live dashboard stats
-  const currentStats = useMemo(() => {
-    let revenueThisMonth = 0;
-    let outstanding = 0;
-    let outstandingCount = 0;
-    let overdue = 0;
-    let overdueCount = 0;
-
-    for (const inv of invoiceList) {
-      if (inv.status === "Paid") {
-        revenueThisMonth += inv.subtotal;
-      } else if (inv.status === "Sent") {
-        outstanding += inv.subtotal;
-        outstandingCount++;
-      } else if (inv.status === "Overdue") {
-        overdue += inv.subtotal;
-        overdueCount++;
-      }
-    }
-
-    return {
-      revenueThisMonth,
-      revenueGrowth: initialStats.revenueGrowth,
-      outstanding,
-      outstandingCount,
-      overdue,
-      overdueCount,
-      activeClients: clientList.length,
-    };
-  }, [invoiceList, clientList.length, initialStats.revenueGrowth]);
+  const currentStats = useMemo(() => ({
+    ...summarizeInvoices(invoiceList), revenueGrowth: initialStats.revenueGrowth, activeClients: clientList.length,
+  }), [invoiceList, clientList.length, initialStats.revenueGrowth]);
 
   const filteredInvoices = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -179,18 +163,18 @@ export function AppShell({ user, invoices, clients, stats: initialStats, nextInv
                 <div>
                   <p className="eyebrow">WORKSPACE / {view.toUpperCase()}</p>
                   <h1>
-                    {view === "overview"
+                    {view === "hospitality" ? "Hospitality billing" : view === "overview"
                       ? "Overview"
                       : view === "invoices"
                       ? "Invoices"
-                      : "Clients"}
+                      : view === "proposals" ? "Proposals" : "Clients"}
                   </h1>
                   <p className="page__sub">
-                    {view === "overview"
+                    {view === "hospitality" ? "Manage tables, stays, staff, and guest menus." : view === "overview"
                       ? `Good morning, ${user.name.split(" ")[0]}. Here's how your business is moving.`
                       : view === "invoices"
                       ? "Track every invoice from draft to paid."
-                      : "Keep your best relationships and revenue in view."}
+                      : view === "proposals" ? "From agreed scope to approved work and payment." : "Keep your best relationships and revenue in view."}
                   </p>
                 </div>
                 <button className="period-pill">
@@ -200,6 +184,10 @@ export function AppShell({ user, invoices, clients, stats: initialStats, nextInv
                   <CaretDown size={12} />
                 </button>
               </div>
+
+              {view === "hospitality" && <HospitalityWorkspace query={query} />}
+
+              {view === "proposals" && <ProposalsWorkspace proposals={proposals} clients={clientList} query={query} />}
 
               {/* ═══════════════════ OVERVIEW ═══════════════════ */}
               {view === "overview" && (
@@ -476,7 +464,7 @@ export function AppShell({ user, invoices, clients, stats: initialStats, nextInv
       {toast && <Toast message={toast} onDismiss={() => setToast("")} />}
 
       <InvoiceDetailDrawer
-        invoice={selectedInvoice}
+        invoice={invoiceList.find(i => i.id === selectedInvoice?.id) ?? null}
         onClose={() => setSelectedInvoice(null)}
         onStatusChange={handleInvoiceStatusChange}
         onDelete={handleInvoiceDelete}

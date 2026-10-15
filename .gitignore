@@ -4,4 +4,9 @@ node_modules
 out
 .env*.local
 *.tsbuildinfo
+backend/.venv/
+backend/.env
+backend/*.sqlite3*
+__pycache__/
+*.pyc
 drizzle/*.sql

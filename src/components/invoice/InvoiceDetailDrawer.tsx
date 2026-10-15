@@ -3,7 +3,6 @@
 import { useState, useEffect, useTransition } from "react";
 import {
   X,
-  CheckCircle,
   Printer,
   Trash,
   Copy,
@@ -22,7 +21,7 @@ import type { InvoiceRow, InvoiceWithDetails, InvoiceStatus, AvatarTone } from "
 const fmt = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
-  maximumFractionDigits: 0,
+  maximumFractionDigits: 2,
 });
 
 interface InvoiceDetailDrawerProps {
@@ -33,7 +32,7 @@ interface InvoiceDetailDrawerProps {
   onNotify: (msg: string) => void;
 }
 
-const STATUS_OPTIONS: InvoiceStatus[] = ["Draft", "Sent", "Paid", "Overdue"];
+const STATUS_OPTIONS: InvoiceStatus[] = ["Draft", "Sent", "Overdue"];
 
 export function InvoiceDetailDrawer({
   invoice,
@@ -63,7 +62,7 @@ export function InvoiceDetailDrawer({
     return () => {
       active = false;
     };
-  }, [invoice?.id]);
+  }, [invoice?.id, invoice?.paidCents, invoice?.paymentHistory.length]);
 
   // Handle escape key
   useEffect(() => {
@@ -117,7 +116,7 @@ export function InvoiceDetailDrawer({
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(
-        `${window.location.origin}/invoice/${invoice.number}`
+        `${window.location.origin}/invoice/${invoice.publicToken}`
       );
       onNotify("Invoice link copied to clipboard");
     } catch {
@@ -207,17 +206,7 @@ export function InvoiceDetailDrawer({
             ))}
           </div>
 
-          {invoice.status !== "Paid" && (
-            <button
-              type="button"
-              className="btn btn--primary drawer-mark-paid"
-              onClick={() => handleStatusUpdate("Paid")}
-              disabled={isUpdating}
-            >
-              <CheckCircle size={16} weight="fill" />
-              Mark as Paid
-            </button>
-          )}
+          <small>Paid status is confirmed by the payment provider.</small>
         </div>
 
         {/* Content Body */}
@@ -323,6 +312,7 @@ export function InvoiceDetailDrawer({
             </div>
           </div>
 
+          {details && <div className="flow-card flow-stack"><h3>Payments</h3><div className="flow-schedule"><span>Confirmed paid</span><b>{fmt.format(details.paidCents / 100)}</b></div><div className="flow-schedule"><span>Remaining balance</span><b>{fmt.format(details.balanceCents / 100)}</b></div>{details.paymentHistory.map(p => <div className="flow-schedule" key={p.id}><span>{p.label} · {p.status}</span><b>{fmt.format(p.amountCents / 100)}</b></div>)}<a className="btn btn--outline" href={`/invoice/${invoice.publicToken}`} target="_blank" rel="noreferrer">Open payment portal ↗</a></div>}
           {/* Notes */}
           {details?.notes && (
             <div className="drawer-notes">

@@ -23,7 +23,7 @@ export function Topbar({
   onOpenCommandPalette,
 }: TopbarProps) {
   const isEditor = view === "editor";
-  const placeholder = view === "clients" ? "Search clients… (or ⌘K)" : "Search invoices… (or ⌘K)";
+  const placeholder = view === "hospitality" ? "Search tables, rooms, or bills…" : view === "proposals" ? "Search proposals…" : view === "clients" ? "Search clients… (or ⌘K)" : "Search invoices… (or ⌘K)";
 
   return (
     <header className="topbar" role="banner">

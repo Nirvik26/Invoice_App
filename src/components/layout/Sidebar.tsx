@@ -2,7 +2,7 @@
 
 import {
   ChartLineUp, GearSix, GridFour, Question, Receipt,
-  UsersThree, SignOut,
+  UsersThree, SignOut, ForkKnife,
 } from "@phosphor-icons/react";
 import { Avatar } from "@/components/ui/Avatar";
 import { signOutAction } from "@/actions/auth";
@@ -21,8 +21,10 @@ interface SidebarProps {
 }
 
 const NAV_ITEMS = [
+  { view: "hospitality" as View, icon: ForkKnife, label: "Hospitality" },
   { view: "overview" as View, icon: GridFour, label: "Overview" },
   { view: "invoices" as View, icon: Receipt, label: "Invoices" },
+  { view: "proposals" as View, icon: Receipt, label: "Proposals" },
   { view: "clients" as View, icon: UsersThree, label: "Clients" },
 ];
 

@@ -7,18 +7,20 @@ import {
   getDashboardStats,
   getNextInvoiceNumber,
 } from "@/lib/queries";
+import { listProposals } from "@/lib/proposals";
 import { AppShell } from "@/components/AppShell";
 
 export default async function Home() {
   const session = await getSession();
   if (!session) redirect("/sign-in");
 
-  const [user, invoiceRows, clientRows, stats, nextNumber] = await Promise.all([
+  const [user, invoiceRows, clientRows, stats, nextNumber, proposalRows] = await Promise.all([
     getUserById(session.userId),
     getInvoicesForUser(session.userId),
     getClientsForUser(session.userId),
     getDashboardStats(session.userId),
     getNextInvoiceNumber(session.userId),
+    listProposals(session.userId),
   ]);
 
   if (!user) redirect("/sign-in");
@@ -36,6 +38,7 @@ export default async function Home() {
       clients={clientRows}
       stats={stats}
       nextInvoiceNumber={nextNumber}
+      proposals={proposalRows}
     />
   );
 }

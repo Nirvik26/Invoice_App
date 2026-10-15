@@ -18,6 +18,11 @@ export type NewLineItem = InferInsertModel<typeof lineItems>;
 /** Flat invoice row returned from the dashboard query */
 export type InvoiceRow = {
   id: string;
+  publicToken: string;
+  totalCents: number;
+  paidCents: number;
+  balanceCents: number;
+  paymentHistory: PaymentRecord[];
   number: string;
   status: "Draft" | "Sent" | "Paid" | "Overdue";
   dueDate: string;
@@ -32,6 +37,7 @@ export type InvoiceRow = {
 
 /** Full invoice detail with its line items and client contact */
 export type InvoiceWithDetails = InvoiceRow & {
+  paymentPlan: import("@/lib/billing").PaymentPlan;
   notes?: string | null;
   taxRate: number;
   clientEmail: string;
@@ -41,6 +47,11 @@ export type InvoiceWithDetails = InvoiceRow & {
 /** Publicly viewable invoice payload for client portal */
 export type PublicInvoice = {
   id: string;
+  publicToken: string;
+  paymentPlan: import("@/lib/billing").PaymentPlan;
+  paidCents: number;
+  balanceCents: number;
+  paymentHistory: PaymentRecord[];
   number: string;
   status: InvoiceStatus;
   dueDate: string;
@@ -84,16 +95,28 @@ export type SessionPayload = {
 };
 
 /** Navigation views */
-export type View = "overview" | "invoices" | "clients" | "editor";
+export type View = "overview" | "invoices" | "clients" | "editor" | "proposals" | "hospitality";
+
+export type PaymentRecord = {
+  id: string;
+  label: string;
+  amountCents: number;
+  status: string;
+  createdAt: Date;
+  paidAt: Date | null;
+};
 
 /** Status badge values */
 export type InvoiceStatus = "Draft" | "Sent" | "Paid" | "Overdue";
 
 /** Avatar tone values */
-export type AvatarTone = "peach" | "blue" | "rose" | "green" | "violet" | "amber";
+export type AvatarTone =
+  "peach" | "blue" | "rose" | "green" | "violet" | "amber";
 
 /** Form action state */
-export type FormState = {
-  errors?: Record<string, string[]>;
-  message?: string;
-} | undefined;
+export type FormState =
+  | {
+      errors?: Record<string, string[]>;
+      message?: string;
+    }
+  | undefined;

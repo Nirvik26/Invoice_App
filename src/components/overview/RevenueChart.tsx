@@ -42,13 +42,11 @@ export function RevenueChart({ invoices = [] }: RevenueChartProps) {
 
       for (const inv of invoices) {
         const invDate = new Date(inv.createdAt);
-        if (invDate.getFullYear() === year && invDate.getMonth() === monthIdx) {
-          if (inv.status === "Paid") {
-            paid += inv.subtotal;
-          } else {
-            pending += inv.subtotal;
-          }
+        if (invDate.getFullYear() === year && invDate.getMonth() === monthIdx && inv.status !== "Draft") {
+          pending += inv.balanceCents / 100;
+          if (!inv.paymentHistory.length) paid += inv.paidCents / 100;
         }
+        paid += inv.paymentHistory.filter(p => p.status === "paid" && p.paidAt && new Date(p.paidAt).getFullYear() === year && new Date(p.paidAt).getMonth() === monthIdx).reduce((sum, p) => sum + p.amountCents / 100, 0);
       }
 
       list.push({
@@ -60,28 +58,6 @@ export function RevenueChart({ invoices = [] }: RevenueChartProps) {
         paidPct: 0,
         pendingPct: 0,
       });
-    }
-
-    // Default sample curve if workspace has no historical invoices yet
-    const hasData = list.some((m) => m.total > 0);
-    if (!hasData) {
-      const sample = [
-        { month: "Apr", paid: 3800, pending: 1200 },
-        { month: "May", paid: 5500, pending: 1800 },
-        { month: "Jun", paid: 4400, pending: 2200 },
-        { month: "Jul", paid: 7200, pending: 1500 },
-        { month: "Aug", paid: 6300, pending: 3100 },
-        { month: "Sep", paid: 8800, pending: 2400 },
-      ];
-      return sample.map((s) => ({
-        month: s.month,
-        year: 2026,
-        paid: s.paid,
-        pending: s.pending,
-        total: s.paid + s.pending,
-        paidPct: Math.round((s.paid / 11200) * 100),
-        pendingPct: Math.round((s.pending / 11200) * 100),
-      }));
     }
 
     const maxVal = Math.max(...list.map((m) => m.total), 1000);
