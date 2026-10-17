@@ -1,0 +1,51 @@
+name: Application checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: billora
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: billora
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U billora"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://billora:test-only@localhost:5432/billora
+      HOSPITALITY_DATABASE_URL: postgresql://billora:test-only@localhost:5432/billora
+      TEST_DATABASE_URL: postgresql://billora:test-only@localhost:5432/billora
+      SESSION_SECRET: ci-only-session-secret-at-least-32-characters
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: bun install --frozen-lockfile
+      - run: python -m pip install -r backend/requirements.txt
+      - run: python backend/manage.py makemigrations --check --dry-run
+      - run: python backend/manage.py test billing
+      - run: bun run db:push
+      - run: bun run db:upgrade
+      - run: bun run test
+      - run: bun run test:integration
+      - run: bun run lint
+      - run: bun run build

@@ -8,6 +8,9 @@ import qrcode
 import qrcode.image.svg
 from django.conf import settings
 from django.db import transaction, IntegrityError
+from django.db.models import Sum, Q
+from .reliability import reliable_mutation
+from .reliability import rate_limit
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
@@ -22,12 +25,25 @@ def authenticated(fn):
             header = request.headers.get('Authorization', '')
             if not header.startswith('Bearer '):
                 raise ValueError()
-            claims = jwt.decode(header[7:], settings.SESSION_SECRET, algorithms=['HS256'], options={'require': ['exp', 'userId']})
+            if settings.API_SIGNING_SECRET:
+                claims = jwt.decode(header[7:], settings.API_SIGNING_SECRET, algorithms=['HS256'], audience='billora-api', issuer='billora-web', options={'require': ['exp', 'iat', 'userId']})
+                if claims['exp'] - claims['iat'] > 90:
+                    raise ValueError()
+            else:
+                claims = jwt.decode(header[7:], settings.SESSION_SECRET, algorithms=['HS256'], options={'require': ['exp', 'userId']})
             request.owner = uuid.UUID(claims['userId'])
         except (jwt.PyJWTError, ValueError, TypeError, KeyError):
             return JsonResponse({'error': 'Please sign in.'}, status=401)
         return fn(request, *args, **kwargs)
     return wrapped
+
+
+@csrf_exempt
+@require_POST
+@authenticated
+def auth_limit(request):
+    limited = rate_limit(str(request.owner), 10, scope='auth')
+    return limited if limited is not None else JsonResponse({'allowed': True})
 
 
 def text(data, key, default=None, limit=100):
@@ -52,7 +68,7 @@ def owned(model, owner, identifier):
 
 
 def bill_data(bill):
-    lines = list(bill.lines.values('id', 'description', 'rate_cents', 'quantity'))
+    lines = [{'id': line.id, 'description': line.description, 'rate_cents': line.rate_cents, 'quantity': line.quantity} for line in bill.lines.all()]
     subtotal = sum(line['rate_cents'] * line['quantity'] for line in lines)
     tax = (subtotal * bill.tax_percent + 50) // 100
     return {'id': str(bill.id), 'number': 'BILL-' + str(bill.id)[:8].upper(), 'space_id': str(bill.space_id), 'space_name': bill.space.name, 'kind': bill.space.kind, 'staff_name': bill.staff.name if bill.staff else '', 'guest': bill.guest, 'check_in': bill.check_in, 'check_out': bill.check_out, 'status': bill.status, 'payment_method': bill.payment_method, 'created_at': bill.created_at, 'paid_at': bill.paid_at, 'tax_percent': bill.tax_percent, 'subtotal_cents': subtotal, 'tax_cents': tax, 'total_cents': subtotal + tax, 'lines': lines}
@@ -62,13 +78,26 @@ def bill_data(bill):
 @authenticated
 def workspace(request):
     owner = request.owner
-    bills = Bill.objects.filter(owner=owner).select_related('space', 'staff').prefetch_related('lines').order_by('-created_at')
-    return JsonResponse({'spaces': list(Space.objects.filter(owner=owner).values()), 'staff': list(Staff.objects.filter(owner=owner).values()), 'menu': list(MenuItem.objects.filter(owner=owner).values()), 'bills': [bill_data(b) for b in bills]})
+    base = Bill.objects.filter(owner=owner)
+    history = base.filter(status='paid').order_by('-created_at', '-id')
+    before = request.GET.get('before')
+    if before:
+        try:
+            anchor = owned(Bill, owner, before)
+        except ValueError:
+            return JsonResponse({'error': 'Invalid history cursor.'}, status=400)
+        history = history.filter(Q(created_at__lt=anchor.created_at) | Q(created_at=anchor.created_at, id__lt=anchor.id))
+    recent = list(history.select_related('space', 'staff').prefetch_related('lines')[:51])
+    next_cursor = str(recent[49].id) if len(recent) > 50 else None
+    open_bills = list(base.filter(status='open').select_related('space', 'staff').prefetch_related('lines').order_by('-created_at'))
+    stats = base.aggregate(outstanding=Sum('total_cents', filter=Q(status='open'), default=0), collected=Sum('total_cents', filter=Q(status='paid'), default=0))
+    return JsonResponse({'spaces': list(Space.objects.filter(owner=owner).values()), 'staff': list(Staff.objects.filter(owner=owner).values()), 'menu': list(MenuItem.objects.filter(owner=owner).values()), 'bills': [bill_data(b) for b in open_bills + recent[:50]], 'next_cursor': next_cursor, 'stats': stats})
 
 
 @csrf_exempt
 @require_POST
 @authenticated
+@reliable_mutation
 def command(request):
     try:
         data = json.loads(request.body)
@@ -77,6 +106,11 @@ def command(request):
         action = data.get('action')
         owner = request.owner
         with transaction.atomic():
+            limits = {'space': (Space, 500), 'staff': (Staff, 500), 'menu': (MenuItem, 1000)}
+            if action in limits:
+                model, limit = limits[action]
+                if model.objects.filter(owner=owner).count() >= limit:
+                    raise ValueError(f'This workspace supports up to {limit} {action} records.')
             if action == 'space':
                 kind = text(data, 'kind')
                 if kind not in ['restaurant', 'hotel', 'homestay']:
@@ -134,6 +168,11 @@ def command(request):
                     bill.save(update_fields=['status', 'payment_method', 'paid_at'])
             else:
                 raise ValueError('Unknown action.')
+            if action in ['open', 'add', 'remove']:
+                totals = bill_data(bill)
+                bill.subtotal_cents = totals['subtotal_cents']
+                bill.total_cents = totals['total_cents']
+                bill.save(update_fields=['subtotal_cents', 'total_cents'])
         return JsonResponse({'success': True})
     except IntegrityError:
         return JsonResponse({'error': 'This name already exists or this space already has an open bill.'}, status=409)
@@ -143,11 +182,12 @@ def command(request):
 
 @require_GET
 def guest(request, token):
+    from .preferences import preferences_data
     space = Space.objects.filter(token=token).first()
     if not space:
         return JsonResponse({'error': 'Menu not found.'}, status=404)
     # Public QR only exposes the menu, never a guest name, folio, or staff roster.
-    return JsonResponse({'name': space.name, 'kind': space.kind, 'menu': list(MenuItem.objects.filter(owner=space.owner).values('id', 'name', 'category', 'price_cents'))})
+    return JsonResponse({'name': space.name, 'kind': space.kind, 'menu': list(MenuItem.objects.filter(owner=space.owner).values('id', 'name', 'category', 'price_cents')), 'preferences': preferences_data(space.owner, public=True)})
 
 
 @require_GET

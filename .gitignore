@@ -10,3 +10,5 @@ backend/*.sqlite3*
 __pycache__/
 *.pyc
 drizzle/*.sql
+.env.production
+backend/*.export.json

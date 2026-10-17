@@ -1,5 +1,6 @@
 "use client";
 
+import { SettingsWorkspace } from "@/components/settings/SettingsWorkspace";
 import { HospitalityWorkspace } from "@/components/hospitality/HospitalityWorkspace";
 import { summarizeInvoices } from "@/lib/billing";
 import { useRouter } from "next/navigation";
@@ -65,9 +66,9 @@ export function AppShell({ user, invoices, clients, stats: initialStats, nextInv
   const [celebrating, setCelebrating] = useState(false);
 
   useEffect(() => {
-    const timer = setInterval(() => router.refresh(), 5000);
+    const timer = setInterval(() => { if (document.visibilityState === "visible" && view !== "hospitality" && view !== "settings" && view !== "editor") router.refresh(); }, 30000);
     return () => clearInterval(timer);
-  }, [router]);
+  }, [router, view]);
   const go = useCallback((next: View) => { setView(next); setQuery(""); }, []);
   const notify = useCallback((msg: string) => setToast(msg), []);
 
@@ -163,14 +164,14 @@ export function AppShell({ user, invoices, clients, stats: initialStats, nextInv
                 <div>
                   <p className="eyebrow">WORKSPACE / {view.toUpperCase()}</p>
                   <h1>
-                    {view === "hospitality" ? "Hospitality billing" : view === "overview"
+                    {view === "settings" ? "Settings & widgets" : view === "hospitality" ? "Hospitality billing" : view === "overview"
                       ? "Overview"
                       : view === "invoices"
                       ? "Invoices"
                       : view === "proposals" ? "Proposals" : "Clients"}
                   </h1>
                   <p className="page__sub">
-                    {view === "hospitality" ? "Manage tables, stays, staff, and guest menus." : view === "overview"
+                    {view === "settings" ? "Customize your business details and dashboard." : view === "hospitality" ? "Manage tables, stays, staff, and guest menus." : view === "overview"
                       ? `Good morning, ${user.name.split(" ")[0]}. Here's how your business is moving.`
                       : view === "invoices"
                       ? "Track every invoice from draft to paid."
@@ -186,6 +187,7 @@ export function AppShell({ user, invoices, clients, stats: initialStats, nextInv
               </div>
 
               {view === "hospitality" && <HospitalityWorkspace query={query} />}
+              {view === "settings" && <SettingsWorkspace />}
 
               {view === "proposals" && <ProposalsWorkspace proposals={proposals} clients={clientList} query={query} />}
 

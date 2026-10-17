@@ -15,8 +15,10 @@ if (!connectionString) {
   );
 }
 
-// `postgres` automatically handles connection pooling.
-// `max: 10` is safe for serverless environments like Vercel.
-const client = postgres(connectionString, { max: 10 });
-
+// Budget connections across replicas; use Neon's pooler for the runtime URL.
+const poolMax = Number(process.env.DB_POOL_MAX || 5);
+if (!Number.isInteger(poolMax) || poolMax < 1 || poolMax > 50) throw new Error("DB_POOL_MAX must be 1–50.");
+const globalDb = globalThis as unknown as { billoraSql?: ReturnType<typeof postgres> };
+const client = globalDb.billoraSql ?? postgres(connectionString, { max: poolMax, idle_timeout: 20, connect_timeout: 10, max_lifetime: 1800, prepare: false });
+if (process.env.NODE_ENV !== "production") globalDb.billoraSql = client;
 export const db = drizzle(client, { schema });

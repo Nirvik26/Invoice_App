@@ -78,8 +78,9 @@ export function Sidebar({ activeView, onNavigate, onNotify, user }: SidebarProps
           <span>Help</span>
         </button>
         <button
-          className="sidebar__link"
-          onClick={() => onNotify("Settings opened")}
+          className={`sidebar__link${activeView === "settings" ? " sidebar__link--active" : ""}`}
+          onClick={() => onNavigate("settings")}
+          aria-current={activeView === "settings" ? "page" : undefined}
         >
           <GearSix size={18} />
           <span>Settings</span>

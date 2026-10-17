@@ -60,7 +60,7 @@ class BillingTests(TestCase):
     def test_tenant_isolation(self):
         bill = self.open()
         self.login(self.other)
-        self.assertEqual(self.client.get('/api/workspace/').json(), {'spaces': [], 'staff': [], 'menu': [], 'bills': []})
+        self.assertEqual(self.client.get('/api/workspace/').json(), {'spaces': [], 'staff': [], 'menu': [], 'bills': [], 'next_cursor': None, 'stats': {'outstanding': 0, 'collected': 0}})
         self.assertEqual(self.command('open', space_id=str(self.table.id)).status_code, 400)
         self.assertEqual(self.command('add', bill_id=str(bill.id), menu_id=str(self.menu.id), quantity=1).status_code, 400)
         self.assertEqual(self.command('staff_toggle', id=str(self.staff.id)).status_code, 400)

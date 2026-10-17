@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.openai
+.env*
+backend/.venv
+backend/.env
+backend/*.sqlite3*
+**/__pycache__
+*.tsbuildinfo
+docs

@@ -32,6 +32,7 @@ export async function decrypt(token: string): Promise<SessionPayload | null> {
     const { payload } = await jwtVerify(token, getSecretKey(), {
       algorithms: ["HS256"],
     });
+    if (typeof payload.userId !== "string" || !/^[0-9a-f-]{36}$/i.test(payload.userId) || typeof payload.expiresAt !== "string" || !Number.isFinite(Date.parse(payload.expiresAt)) || Date.parse(payload.expiresAt) <= Date.now()) return null;
     return {
       userId: payload.userId as string,
       expiresAt: new Date(payload.expiresAt as string),

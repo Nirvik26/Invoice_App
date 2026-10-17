@@ -34,7 +34,7 @@ export function Topbar({
       </div>
 
       {/* Left: back button or search */}
-      {isEditor ? (
+      {view === "settings" ? <span>Workspace settings</span> : isEditor ? (
         <button className="topbar__back" onClick={() => onNavigate("invoices")}>
           <ArrowLeft size={16} weight="bold" />
           <span>Invoices</span>

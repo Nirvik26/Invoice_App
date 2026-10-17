@@ -95,7 +95,7 @@ export type SessionPayload = {
 };
 
 /** Navigation views */
-export type View = "overview" | "invoices" | "clients" | "editor" | "proposals" | "hospitality";
+export type View = "overview" | "invoices" | "clients" | "editor" | "proposals" | "hospitality" | "settings";
 
 export type PaymentRecord = {
   id: string;

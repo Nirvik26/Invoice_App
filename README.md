@@ -13,7 +13,7 @@ The default workspace now includes Restaurant, Hotel, Homestay, Staff, QR codes,
 - Download real SVG QR codes for each table/room. Codes open a mobile guest menu at `/guest/<token>`; they never expose guest names or folios. Ordering is handled by staff.
 - Existing invoice/proposal payments continue using Stripe test Checkout. Hospitality settlement currently records **cash only**; a QR menu is not a payment-provider QR.
 
-Django owns hospitality data in `backend/db.sqlite3`. Existing authentication, clients, invoices, proposals, and Stripe integrations retain their PostgreSQL/Drizzle backend. This is an additive backend, not a migration of existing invoice data. Hospitality receipts appear under **Bills & receipts**, not the legacy invoice list. Staff records are an assignment roster, not separate login accounts or payroll.
+Django owns hospitality data, settings, and widgets in PostgreSQL when `HOSPITALITY_DATABASE_URL` is set, or in `backend/db.sqlite3` otherwise. Existing authentication, clients, invoices, proposals, and Stripe integrations retain their PostgreSQL/Drizzle backend. This is an additive backend, not a migration of existing invoice data. Hospitality receipts appear under **Bills & receipts**, not the legacy invoice list. Staff records are an assignment roster, not separate login accounts or payroll.
 
 ### Start Django
 
@@ -24,10 +24,13 @@ bun install --frozen-lockfile
 python -m venv backend/.venv
 backend/.venv/Scripts/python.exe -m pip install -r backend/requirements.txt
 bun run backend:migrate
-bun run backend:dev
+
+# Run both backend and frontend together:
+bun run dev:all
+# Or run with: python scripts/dev.py (or .\run-dev.bat on Windows)
 ```
 
-On macOS/Linux use `backend/.venv/bin/python` for the pip command. In another terminal, run `bun run dev`. Set the same strong `SESSION_SECRET` for both services; Django reads the root `.env.local`. Next.js proxies authenticated requests with a signed, expiring bearer token, and Django scopes every private query to its owner UUID. No database credentials or session tokens reach guest QR pages.
+On macOS/Linux use `backend/.venv/bin/python` for the pip command. Alternatively, run backend (`bun run backend:dev`) and frontend (`bun run dev`) in separate terminals. Set the same strong `SESSION_SECRET` for both services; Django reads the root `.env.local`. Next.js proxies authenticated requests with a signed, expiring bearer token, and Django scopes every private query to its owner UUID. No database credentials or session tokens reach guest QR pages.
 
 Set `PUBLIC_APP_URL` to your reachable frontend origin **before printing QR codes**. The localhost default works only on the development computer. Set `DJANGO_API_URL` when Django is deployed elsewhere. Keep Django behind a private network/TLS proxy, and use a production WSGI server instead of `runserver`. SQLite uses immediate transactions and a unique active-bill constraint; back up its database file. Currency is USD throughout the current app.
 
@@ -131,3 +134,50 @@ bun run test:integration
 These tests exercise revision conflicts, tenant isolation, concurrent approvals, interrupted checkout requests, duplicate/out-of-order events, expired/failed retries, and full settlement. They use a fake Stripe transport with the real database; verify a hosted Stripe test checkout separately after supplying keys.
 
 If a checkout was created but its response could not be recorded, requests retry the same payment attempt. An unresolved attempt older than 23 hours is blocked to avoid reuse after Stripe's idempotency retention window. Reconcile its `paymentId` metadata in Stripe and replay the verified event before resolving it; do not simply delete a pending attempt.
+
+## Settings, widgets, and uploaded QR codes
+
+Open **Settings** in the sidebar or go to `/settings`. Save a business name and guest message, then add up to 12 widgets:
+
+- **QR image:** upload a PNG, JPEG, or WebP (up to 2 MB / 4 megapixels), preview, replace, or download it.
+- **Notice:** display text such as opening hours, Wi-Fi instructions, or team reminders.
+- **Link:** add an HTTP(S) link, such as your website or booking page.
+
+Widgets can be edited, reordered, hidden, and removed. They appear on the hospitality dashboard. Public guest-menu visibility is **off by default** and must be explicitly enabled for each widget. Hidden widgets are also hidden from guest menus. Business name and guest message are public on guest menus. Uploaded QR images are validated, flattened onto white without resizing, stripped of metadata, and persisted in the backend database; no temporary filesystem or third-party upload service is required. These are user-supplied images: confirm that the code scans to the intended destination. Payment QR uploads do not automatically verify or settle a bill.
+
+After pulling the update, install the new Python dependencies and run `bun run backend:migrate`. Existing SQLite records remain in place.
+
+## Connecting your Neon PostgreSQL database
+
+The current app uses two database configurations:
+
+- `DATABASE_URL`: existing invoices, clients, proposals, payments, and login accounts (Next.js/Drizzle).
+- `HOSPITALITY_DATABASE_URL`: hospitality billing, settings, and uploaded widgets (Django). If unset, Django retains the existing local SQLite database.
+
+Copy the PostgreSQL connection URL from your Neon project's **Connect** panel into `.env.local`. Do not put credentials in the Settings UI, a widget, a public environment variable, or source control. Both services may use the same Neon database: Django's tables have the `billing_` prefix. Keep `sslmode=require` (or stronger verification) in the connection URL. The Django adapter requires TLS for Neon, preserves channel binding parameters, disables server-side cursors for pooled connections, and avoids persistent connections.
+
+```dotenv
+DATABASE_URL=postgresql://USER:PASSWORD@YOUR-HOST.neon.tech/neondb?sslmode=require
+HOSPITALITY_DATABASE_URL=postgresql://USER:PASSWORD@YOUR-HOST.neon.tech/neondb?sslmode=require
+```
+
+For a **new empty Neon database**, run:
+
+```powershell
+bun run db:push
+bun run db:upgrade
+bun run backend:migrate
+bun run dev:all
+```
+
+For an existing initialized invoice database, use `bun run db:upgrade` and `bun run backend:migrate`; don't run demo seeding. Use Neon's direct connection URL for schema migrations. Restart both services after changing environment variables. Settings shows the connected hospitality database type without exposing credentials.
+
+Changing URLs does **not** move existing data. Preserve the existing PostgreSQL accounts and their UUIDs when migrating invoices; Django owner IDs refer to those accounts. Before switching Django off SQLite, back it up and export its `billing` records using Django `dumpdata --output` while the old configuration is still active; migrate the new target, then import with `loaddata`. Do not load exports over existing conflicting records. A new empty database starts with no previous accounts, widgets, or bills. `HOSPITALITY_DB_PATH` intentionally overrides the PostgreSQL URL for isolated local testing; leave it unset for Neon.
+
+Connection configuration follows [Neon's Django guide](https://neon.com/blog/python-django-and-neons-serverless-postgres). Actual Neon connectivity requires your private connection URL; creating a project in the console alone does not connect this repository.
+
+## Production architecture and operations
+
+See [the production runbook](docs/production.md) for deployment, Neon/Redis configuration, scaling limits, migrations, backups, monitoring, and remaining launch requirements. Dockerfiles, Compose, and a PostgreSQL/Redis CI workflow are included.
+
+Hospitality writes now support persistent idempotency keys and audit events. Bill history is paginated while lifetime totals stay accurate. QR uploads are returned as independently authorized image URLs instead of embedded blobs in metadata responses. Production uses distinct short-lived API tokens and shared throttling; development retains the existing local configuration.

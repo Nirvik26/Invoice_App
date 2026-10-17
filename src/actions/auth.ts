@@ -5,14 +5,16 @@ import { redirect } from "next/navigation";
 import { signUpUser, verifyCredentials } from "@/lib/auth";
 import { createSession, deleteSession } from "@/lib/session";
 import type { FormState } from "@/types";
+import { authenticationAllowed } from "@/lib/auth-throttle";
 
 // ── Zod schemas ────────────────────────────────────────────────────────────
 const SignUpSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters.").trim(),
+  name: z.string().trim().min(2, "Name must be at least 2 characters.").max(100),
   email: z.email("Please enter a valid email address.").trim(),
   password: z
     .string()
     .min(8, "Password must be at least 8 characters.")
+    .refine(value => Buffer.byteLength(value, "utf8") <= 72, "Password must be at most 72 UTF-8 bytes.")
     .regex(/[a-zA-Z]/, "Password must contain at least one letter.")
     .regex(/[0-9]/, "Password must contain at least one number."),
 });
@@ -39,6 +41,7 @@ export async function signUpAction(
     };
   }
 
+  if (!await authenticationAllowed(parsed.data.email)) return { message: "Sign-in is temporarily limited. Please try again in a minute." };
   const result = await signUpUser(
     parsed.data.name,
     parsed.data.email,
@@ -69,6 +72,7 @@ export async function signInAction(
     };
   }
 
+  if (!await authenticationAllowed(parsed.data.email)) return { message: "Sign-in is temporarily limited. Please try again in a minute." };
   const result = await verifyCredentials(parsed.data.email, parsed.data.password);
 
   if ("error" in result) {

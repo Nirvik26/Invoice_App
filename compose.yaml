@@ -1,0 +1,58 @@
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      APP_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?Set the invoice PostgreSQL URL}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
+      API_SIGNING_SECRET: ${API_SIGNING_SECRET:?Set a distinct API signing secret}
+      NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?Set a shared server action key}
+      DJANGO_API_URL: http://backend:8000
+      APP_URL: ${APP_URL:?Set the public HTTPS origin}
+      DB_POOL_MAX: ${DB_POOL_MAX:-5}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: backend,localhost,127.0.0.1
+      HOSPITALITY_DATABASE_URL: ${HOSPITALITY_DATABASE_URL:?Set the Django PostgreSQL URL}
+      SESSION_SECRET: ${SESSION_SECRET}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set a Django secret}
+      API_SIGNING_SECRET: ${API_SIGNING_SECRET}
+      PUBLIC_APP_URL: ${APP_URL}
+      REDIS_URL: redis://redis:6379/0
+      REQUEST_LOG_LEVEL: INFO
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready/', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+volumes:
+  redis-data:
