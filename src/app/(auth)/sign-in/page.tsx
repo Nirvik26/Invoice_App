@@ -5,6 +5,9 @@ import { signInAction } from "@/actions/auth";
 import Link from "next/link";
 import { EnvelopeSimple, Lock, ArrowRight, Sparkle } from "@phosphor-icons/react";
 import type { FormState } from "@/types";
+import { DemoButton } from "@/components/ui/DemoButton";
+
+const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
 const FEATURES = [
   "Invoices that get paid faster",
@@ -43,10 +46,14 @@ export default function SignInPage() {
             ))}
           </ul>
 
-          <div className="auth-panel__demo">
-            <p>Try with demo account</p>
-            <code>demo@billora.app / demo1234</code>
-          </div>
+          {DEMO_MODE ? (
+            <DemoButton />
+          ) : (
+            <div className="auth-panel__demo">
+              <p>Try with demo account</p>
+              <code>demo@billora.app / demo1234</code>
+            </div>
+          )}
         </div>
 
         {/* Animated gradient orbs */}

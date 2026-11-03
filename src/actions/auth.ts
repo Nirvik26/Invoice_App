@@ -6,6 +6,7 @@ import { signUpUser, verifyCredentials } from "@/lib/auth";
 import { createSession, deleteSession } from "@/lib/session";
 import type { FormState } from "@/types";
 import { authenticationAllowed } from "@/lib/auth-throttle";
+import { demoEnabled, demoUserId } from "@/lib/demo";
 
 // ── Zod schemas ────────────────────────────────────────────────────────────
 const SignUpSchema = z.object({
@@ -80,6 +81,13 @@ export async function signInAction(
   }
 
   await createSession(result.user.id);
+  redirect("/");
+}
+
+// ── Demo Sign In ───────────────────────────────────────────────────────────
+export async function demoSignInAction(): Promise<FormState> {
+  if (!demoEnabled()) return { message: "The demo is not enabled on this deployment." };
+  await createSession(await demoUserId());
   redirect("/");
 }
 

@@ -5,6 +5,9 @@ import { signUpAction } from "@/actions/auth";
 import Link from "next/link";
 import { EnvelopeSimple, Lock, User, ArrowRight, Sparkle } from "@phosphor-icons/react";
 import type { FormState } from "@/types";
+import { DemoButton } from "@/components/ui/DemoButton";
+
+const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
 const PERKS = [
   "Free forever for freelancers",
@@ -42,6 +45,8 @@ export default function SignUpPage() {
               </li>
             ))}
           </ul>
+
+          {DEMO_MODE && <DemoButton />}
         </div>
 
         <div className="auth-panel__orb auth-panel__orb--1" aria-hidden="true" />

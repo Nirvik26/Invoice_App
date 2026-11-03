@@ -1,6 +1,67 @@
+<div align="center">
+
 # Billora
 
-A hospitality billing workspace built with Next.js, React, Django/Python, and Bun. Existing invoices, proposals, and Stripe test payments remain available.
+**From signed-off proposal to paid invoice, in one calm workspace.**
+
+[![CI](https://github.com/Nirvik26/Invoice_App/actions/workflows/ci.yml/badge.svg)](https://github.com/Nirvik26/Invoice_App/actions/workflows/ci.yml)
+![Next.js](https://img.shields.io/badge/Next.js-16-black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6)
+![Stripe](https://img.shields.io/badge/Stripe-test%20mode-635BFF)
+
+[**Live demo**](https://YOUR-DEMO-URL) · [Deploy guide](docs/deploy-demo.md) · [Operations](docs/production.md)
+
+</div>
+
+<!-- TODO before publishing: replace Nirvik26/Invoice_App and YOUR-DEMO-URL, then add screenshots or a GIF here, e.g. docs/screenshots/overview.png -->
+
+Billora is a full-stack billing workspace for independent studios. A client approves a proposal through a private link, an invoice is created with the agreed milestone schedule, and each installment is paid through Stripe and confirmed by webhook. It also includes a hospitality module (tables, rooms, QR guest menus, receipts).
+
+> **Try it:** open the live demo and click **Try the live demo**. No sign-up needed. Use Stripe test card `4242 4242 4242 4242` with any future expiry and CVC. The demo workspace resets daily.
+
+## Highlights
+
+| Problem | How it is handled |
+| --- | --- |
+| A client approves twice, or two people approve at once | Acceptance creates exactly one invoice; the proposal is immutable afterwards. |
+| A payment redirect is faked or replayed | Invoices are marked paid only by **signed Stripe webhooks**. Checkout attempts reuse idempotency keys and block concurrent checkouts for one installment. |
+| A request is retried after a network failure | Hospitality writes carry a mutation key. The same key and body replays the saved result; a different body returns 409. |
+| One tenant reading another's data | Every private query is scoped to the owner's UUID; Django verifies short-lived signed bearer tokens. |
+| Credential stuffing | Per-account throttling before password verification, backed by shared Redis. |
+| Silent data changes | Each successful write has a transactional audit event and request ID. |
+
+## Architecture
+
+```
+Browser ──► Next.js 16 (React 19, server actions)
+              ├─► PostgreSQL via Drizzle   users, clients, invoices, proposals, payments
+              ├─► Stripe Checkout + signed webhook
+              └─► Django API (signed bearer token) ─► PostgreSQL / SQLite
+                                                    └─► Redis (rate limits)
+```
+
+## Tech stack
+
+Next.js 16, React 19, TypeScript, Tailwind CSS 4, Drizzle ORM, PostgreSQL, Stripe, Django, Redis, Docker, GitHub Actions, Bun.
+
+## Quick start
+
+```bash
+bun install --frozen-lockfile
+cp .env.example .env.local        # set DATABASE_URL and SESSION_SECRET
+bun run db:push && bun run db:upgrade
+bun run dev
+```
+
+For the hospitality module, also start Django (see [Start Django](#start-django)). To run a public demo, set `DEMO_MODE=true` and `NEXT_PUBLIC_DEMO_MODE=true` (see [docs/deploy-demo.md](docs/deploy-demo.md)).
+
+## Known limitations
+
+Payments use Stripe **test mode** and hospitality settlement is cash only. Staff are a roster, not login accounts. Currency is USD. There is no email verification or password reset yet. See [docs/production.md](docs/production.md) for the full launch checklist.
+
+---
+
+# Reference
 
 ## Hospitality billing
 

@@ -9,10 +9,11 @@ import {
 } from "@/lib/queries";
 import { listProposals } from "@/lib/proposals";
 import { AppShell } from "@/components/AppShell";
+import { Landing } from "@/components/landing/Landing";
 
 export default async function Home() {
   const session = await getSession();
-  if (!session) redirect("/sign-in");
+  if (!session) return <Landing />;
 
   const [user, invoiceRows, clientRows, stats, nextNumber, proposalRows] = await Promise.all([
     getUserById(session.userId),

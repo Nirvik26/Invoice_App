@@ -16,7 +16,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const isPublicPrefix = PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
+  // "/" is public: signed-out visitors get the landing page, signed-in users get the app.
+  const isPublicPrefix = pathname === "/" || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
   const isAuthPage = AUTH_PAGES.some((p) => pathname.startsWith(p));
   const token = request.cookies.get("billora_session")?.value;
   const session = token ? await decrypt(token) : null;
